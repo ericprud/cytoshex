@@ -1,0 +1,21 @@
+{
+  "name": "cytoshex",
+  "version": "1.0.0",
+  "description": "ShEx validation for cytoscape.js",
+  "repository": "https://github.com/ericprud/cytoshex/",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@shexjs/parser": "^1.0.0-alpha.4",
+    "cytoscape": "^3.7.2",
+    "n3": "^1.1.1"
+  },
+  "devDependencies": {
+    "browserify": "^16.2.3"
+  }
+}

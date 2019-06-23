@@ -1,0 +1,25 @@
+<html>
+  <head>
+    <title>title</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div style="height: 100%;">
+    <div class="wrapper">
+      <textarea id="data" class="box">data</textarea>
+      <div id="schema" class="box">schema</div>
+      <div id="cy" class="box"></div>
+    </div>
+    <button id="validate">click</button>
+    <div>
+    <script src="./node_modules/@shexjs/core/browser/shex-core-browserify.js"></script>
+    <script src="./node_modules/@shexjs/parser/browser/shex-parser-browserify.js"></script>
+    <script src="./node_modules/n3/browser/n3-browserify.js"></script>
+    <script src="./node_modules/cytoscape/build/cytoscape.umd.js"></script>
+    <script src="./ace/ace.js" type="text/javascript" charset="utf-8"></script>
+    <script src="./index.js"></script>
+    <script>
+      window.onload = doit()
+    </script>
+  </body>
+</html>
