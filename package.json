@@ -5,6 +5,11 @@
   "repository": "https://github.com/ericprud/cytoshex/",
   "main": "index.js",
   "scripts": {
+    "browser": "npm run browser:cytoscape && npm run browser:n3 && npm run browser:shex-core && npm run browser:shex-parser",
+    "browser:cytoscape": "(cd node_modules/cytoscape/ && npm install && npm run build:umd) && mv node_modules/cytoscape/build/cytoscape.umd.js browser/",
+    "browser:n3": "npx browserify node_modules/n3/N3.js -s N3 -o browser/n3-browserify.js",
+    "browser:shex-core": "npx browserify node_modules/@shexjs/core/shex-core.js -s ShExCore -o browser/shex-core-browserify.js",
+    "browser:shex-parser": "npx browserify node_modules/@shexjs/parser/shex-parser.js -s ShExParser -o browser/shex-parser-browserify.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

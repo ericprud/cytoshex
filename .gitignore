@@ -1,18 +1,3 @@
 # !node_modules/**/browser/
 
 node_modules/*
-
-!node_modules/n3/
-node_modules/n3/*
-!node_modules/n3/browser/
-
-!node_modules/@shexjs/
-node_modules/@shexjs/*
-
-!node_modules/@shexjs/core/
-node_modules/@shexjs/core/*
-!node_modules/@shexjs/core/browser/
-
-!node_modules/@shexjs/parser/
-node_modules/@shexjs/parser/*
-!node_modules/@shexjs/parser/browser/
