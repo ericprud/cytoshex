@@ -1,9 +1,10 @@
-const { DataFactory } = N3;
+const { DataFactory, Store } = N3;
 const { namedNode, literal, defaultGraph, quad } = DataFactory;
 const bodyElt = document.getElementsByTagName('body')[0]
 const dataElt = document.getElementById('data')
-const validateButton = document.getElementById('validate')
+const drawButton = document.getElementById('draw')
 const editButton = document.getElementById('edit')
+const validateButton = document.getElementById('validate')
 const dataCyElt = document.getElementById('dataCy')
 const shexEditor = ace.edit('schema')
 const base = 'http://cy.example/'
@@ -13,15 +14,22 @@ const shexParser = ShExParser.construct(base, {}, {index: true})
 let lastDataStr = null // copy of most recent data
 let dataCy = null // cytoscape display of data
 
+/** Initialize when all documents are loaded.
+ */
 window.onload = function (evt) {
   renderData(demoData)
+  drawButton.onclick = dataElt.onblur = parseData
+  editButton.disabled = validateButton.disabled = true
+
+  // set up ShEx editor
   shexEditor.setTheme('ace/theme/dawn')
   shexEditor.session.setMode('ace/mode/shexc')
   shexEditor.setValue(demoSchema, 1)
-  dataElt.onblur = parseData
+  shexEditor.setFontSize('1.4em')
 }
 
-
+/** Compress stringified elements to fit better in textarea.
+ */
 function renderData (elements) {
   dataElt.value
     = '{\n'
@@ -37,26 +45,27 @@ function renderData (elements) {
   }
 }
 
+/** Parse JSON from data textarea and set up validation handlers.
+ */
 function parseData () {
   try {
     const elements = JSON.parse(dataElt.value)
 
-    // Don't do anything if the data hasn't changed.
+    // don't do anything if the data hasn't changed since we last parsed it
     const str = JSON.stringify(elements)
     if (str === lastDataStr)
       return
     lastDataStr = str
 
-    validateButton.onclick = evt => renderValidation(elements)
+    // prepare UI
+    editButton.disabled = validateButton.disabled = false
     editButton.onclick = evt => renderData(elements)
-    bodyElt.onkeydown = function (e) {
-      var code = e.keyCode || e.charCode; // standards anyone?
-      if (e.ctrlKey && (code === 10 || code === 13)) {
-        renderValidation(elements)
-        return false
-      }
-      return true
-    }
+    validateButton.onclick = evt => validateData(elements)
+    onKeyDown(bodyElt,
+              e => e.ctrlKey && e.code === 'Enter',
+              e => validateData(elements))
+
+    // draw the parsed data
     updateGraph(elements)
   } catch (e) {
     lastDataStr = null
@@ -64,9 +73,12 @@ function parseData () {
   }
 }
 
-function renderValidation (elements) {
+/** Test the highlighted nodes for conformance with start shape.
+ */
+function validateData (elements) {
   const {n3Store, shapeMap} = triplifyData(elements)
   try {
+    // construct validator
     const schema = shexParser.parse(shexEditor.getValue())
     const shexValidator = ShExCore.Validator.construct(schema)
     const db = ShExCore.Util.makeN3DB(n3Store)
@@ -75,50 +87,80 @@ function renderValidation (elements) {
     elements.nodes.concat(elements.edges).forEach(
       n => delete n.selected
     )
-    shapeMap.forEach(m => {
-      const results = shexValidator.validate(db, m.node, m.shape)
-      if ('errors' in results) {
-        elements.nodes.filter(
-          n => defaultNS + n.data.id === results.node
-        ).forEach(n => n.selected = true)
 
-        const arcsOut = elements.edges.filter(
-          edge => defaultNS + edge.data.source === results.node
-        )
-        results.errors.forEach(err => {
-          arcsOut.forEach(edge => {
-            if (defaultNS + edge.data.label === err.property
-               || 'constraint' in err && defaultNS + edge.data.label === err.constraint.predicate)
-              edge.selected = true;
-          })
-        })
-      }
-    })
+    // run validator
+    const results = shexValidator.validate(db, shapeMap)
+
+    // annotate data with failures
+    if (results.type === 'FailureList')
+      results.errors.forEach(e => paintFailure(e, elements))
+    else if (results.type === 'Failure')
+      paintFailure(results, elements)
+
+    // re-draw the data
     updateGraph(elements)
   } catch (e) {
     dataCyElt.innerText = "Schema error: " + e.stack
   }
 }
 
+/** Interpret data as an RDF graph.
+ */
 function triplifyData (elements) {
+
+  // create list of nodes found in data
+  // not currently used as we don't care about disconneced nodes
+  /*
   const nodes = elements.nodes.reduce((acc, n) => {
-    acc[n.data.id] = literal(n.data.name)
+    acc[n.data.id] = namedNode(defaultNS + n.data.name)
     return acc
   }, {})
+  */
+
+  // add node ids to default namespace.
   const arcs = elements.edges.map(e => quad(
     namedNode(defaultNS + e.data.source),
     namedNode(defaultNS + e.data.label),
     namedNode(defaultNS + e.data.target),
   ))
-  const n3Store = new N3.Store()
+
+  // store arcs in an N3.js quad store.
+  const n3Store = new Store()
   n3Store.addQuads(arcs)
+
+  // compose ShapeMap pairing selected nodes with START shape.
   const shapeMap = dataCy.$(':selected').map(sel => sel.id()).map(
     n =>
       ({node: defaultNS + n, shape: ShExCore.Validator.start})
   )
+
   return {n3Store, shapeMap}
 }
 
+/** Render failures as colored nodes and edges.
+ */
+function paintFailure (results, elements) {
+  // color nodes
+  elements.nodes.filter(
+    n => defaultNS + n.data.id === results.node
+  ).forEach(n => n.selected = true)
+
+  const arcsOut = elements.edges.filter(
+    edge => defaultNS + edge.data.source === results.node
+  )
+
+  // color arcs
+  results.errors.forEach(err => {
+    arcsOut.forEach(edge => {
+      if (defaultNS + edge.data.label === err.property
+          || 'constraint' in err && defaultNS + edge.data.label === err.constraint.predicate)
+        edge.selected = true;
+    })
+  })
+}
+
+/** Use cytoscape to render data as a graph.
+ */
 function updateGraph (elements) {
   dataCyElt.innerText = '' // clear out any old error messages
   dataCy = cytoscape({
@@ -130,6 +172,8 @@ function updateGraph (elements) {
   })
 }
 
+/** App-specific cytoscape style rules.
+ */
 function getStyle () {
   return cytoscape.stylesheet()
     .selector('edge')
@@ -157,9 +201,21 @@ function getStyle () {
       'overlay-padding': function( node ){
         var bb = node.boundingBox();
         
-        return Math.max( bb.h - node.outerHeight(), (bb.w - node.outerWidth())/2 ); // /2 b/c centred text
+        return Math.max( bb.h - node.outerHeight(), (bb.w - node.outerWidth())/25 ); // /25 b/c centred text
       }
     })
+}
+
+/** Add keydown handler for supplied element.
+ */
+function onKeyDown (elt, test, act) {
+  elt.onkeydown = function (e) {
+    if (test(e)) {
+      act(e)
+      return false
+    }
+    return true
+  }
 }
 
 const demoData = {
