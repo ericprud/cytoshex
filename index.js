@@ -1,76 +1,43 @@
 const { DataFactory } = N3;
 const { namedNode, literal, defaultGraph, quad } = DataFactory;
+const bodyElt = document.getElementsByTagName('body')[0]
 const dataElt = document.getElementById('data')
-const schemaElt = document.getElementById('schema')
-const buttonElt = document.getElementById('validate')
-const renderElt = document.getElementById('cy')
+const validateButton = document.getElementById('validate')
+const editButton = document.getElementById('edit')
+const dataCyElt = document.getElementById('dataCy')
 const shexEditor = ace.edit('schema')
 const base = 'http://cy.example/'
 const defaultNS = base + '#'
 const shexParser = ShExParser.construct(base, {}, {index: true})
-let lastDataStr = null
-let cy = null
 
-function doit (evt) {
-  const demoData = {
-    nodes: [
-      { data: { id: 'a' }, selected: true },
-      { data: { id: 'a1' } },
-      { data: { id: 'a2' } },
-      { data: { id: 'a3' } },
+let lastDataStr = null // copy of most recent data
+let dataCy = null // cytoscape display of data
 
-      { data: { id: 'b' }, selected: true },
-      { data: { id: 'b1' } },
-      { data: { id: 'b2' } },
-      { data: { id: 'b3' } },
-
-      { data: { id: 'c' }, selected: true },
-      { data: { id: 'c1' } },
-      { data: { id: 'c2' } },
-      { data: { id: 'c3' } },
-
-      // { data: { id: 'd' }, selected: true },
-      // { data: { id: 'd1' } },
-      // { data: { id: 'd2' } },
-      // { data: { id: 'd3' } },
-    ],
-    edges: [
-      { data: { source: 'a', target: 'a1', label: 'rel1' } },
-      { data: { source: 'a', target: 'a2', label: 'rel2' } },
-      { data: { source: 'a', target: 'a3', label: 'rel3' } },
-
-      { data: { source: 'b', target: 'b1', label: 'rel1' } },
-      { data: { source: 'b', target: 'b2', label: 'rel1' } },
-      { data: { source: 'b', target: 'b3', label: 'rel2' } },
-
-      { data: { source: 'c', target: 'c1', label: 'rel1' } },
-      { data: { source: 'c', target: 'c2', label: 'rel3' } },
-      { data: { source: 'c', target: 'c3', label: 'rel3' } },
-
-      // { data: { source: 'd', target: 'd1', label: 'rel1' } },
-      // { data: { source: 'd', target: 'd2', label: 'rel2' } },
-      // { data: { source: 'd', target: 'd3', label: 'rel3' } },
-    ]
-  }
-  dataElt.value =
-    '{\n'
-    + '  "nodes": [\n    ' + demoData.nodes.map(JSON.stringify).join(',\n    ') + '\n  ],\n'
-    + '  "edges": [\n    ' + demoData.edges.map(JSON.stringify).join(',\n    ') + '\n  ]\n}'
-  const demoSchema = `PREFIX : <#>
-start=@<#foo>
-<#foo> {
-  :rel1 . ;
-  :rel2 . + ;
-  :rel3 . *
-}`
+window.onload = function (evt) {
+  renderData(demoData)
   shexEditor.setTheme('ace/theme/dawn')
   shexEditor.session.setMode('ace/mode/shexc')
   shexEditor.setValue(demoSchema, 1)
-  dataElt.onblur = renderData
+  dataElt.onblur = parseData
 }
 
 
-function renderData () {
+function renderData (elements) {
+  dataElt.value
+    = '{\n'
+    + '  "nodes": [\n    ' + elements.nodes.map(JSON.stringify).join(',\n    ') + '\n  ],\n'
+    + '  "edges": [\n    ' + elements.edges.map(stringifyEdge).join(',\n    ') + '\n  ]\n'
+    + '}'
+
+  function stringifyEdge (e) {
+    // get rid of the noisy edge.data.id 'cause i don't know how to use it anyways.
+    copy = JSON.parse(JSON.stringify(e))
+    delete copy.data.id
+    return JSON.stringify(copy)
+  }
+}
+
+function parseData () {
   try {
     const elements = JSON.parse(dataElt.value)
 
@@ -80,30 +47,41 @@ function renderData () {
       return
     lastDataStr = str
 
-    buttonElt.onclick = evt => renderValidation(elements)
-    cy = cytoscape({
-      elements: elements,
-      container: renderElt,
-      style: getStyle(),
-      layout: { name: 'grid', padding: 10 },
-      ready: function (){ window.cy = this; }
-    });
+    validateButton.onclick = evt => renderValidation(elements)
+    editButton.onclick = evt => renderData(elements)
+    bodyElt.onkeydown = function (e) {
+      var code = e.keyCode || e.charCode; // standards anyone?
+      if (e.ctrlKey && (code === 10 || code === 13)) {
+        renderValidation(elements)
+        return false
+      }
+      return true
+    }
+    updateGraph(elements)
   } catch (e) {
-    renderElt.innerText = "Data error: " + e.stack
+    lastDataStr = null
+    dataCyElt.innerText = "Data error: " + e.stack
   }
 }
 
 function renderValidation (elements) {
-  const {n3Store, shapeMap} = parseData(elements)
-  console.log(shapeMap)
+  const {n3Store, shapeMap} = triplifyData(elements)
   try {
     const schema = shexParser.parse(shexEditor.getValue())
     const shexValidator = ShExCore.Validator.construct(schema)
     const db = ShExCore.Util.makeN3DB(n3Store)
+
+    // uncolor everything before starting validation.
+    elements.nodes.concat(elements.edges).forEach(
+      n => delete n.selected
+    )
     shapeMap.forEach(m => {
       const results = shexValidator.validate(db, m.node, m.shape)
-      console.log(results)
       if ('errors' in results) {
+        elements.nodes.filter(
+          n => defaultNS + n.data.id === results.node
+        ).forEach(n => n.selected = true)
+
         const arcsOut = elements.edges.filter(
           edge => defaultNS + edge.data.source === results.node
         )
@@ -114,27 +92,15 @@ function renderValidation (elements) {
               edge.selected = true;
           })
         })
-      } else {
-        elements.nodes.filter(
-          n => defaultNS + n.data.id === results.node
-        ).forEach(
-          n => delete n.selected
-        )
       }
     })
-    cy = cytoscape({
-      elements: elements,
-      container: renderElt,
-      style: getStyle(),
-      layout: { name: 'grid', padding: 10 },
-      ready: function (){ window.cy = this; }
-    });
+    updateGraph(elements)
   } catch (e) {
-    renderElt.innerText = "Schema error: " + e.stack
+    dataCyElt.innerText = "Schema error: " + e.stack
   }
 }
 
-function parseData (elements) {
+function triplifyData (elements) {
   const nodes = elements.nodes.reduce((acc, n) => {
     acc[n.data.id] = literal(n.data.name)
     return acc
@@ -146,11 +112,22 @@ function parseData (elements) {
   ))
   const n3Store = new N3.Store()
   n3Store.addQuads(arcs)
-  const shapeMap = cy.$(':selected').map(sel => sel.id()).map(
+  const shapeMap = dataCy.$(':selected').map(sel => sel.id()).map(
     n =>
       ({node: defaultNS + n, shape: ShExCore.Validator.start})
   )
   return {n3Store, shapeMap}
+}
+
+function updateGraph (elements) {
+  dataCyElt.innerText = '' // clear out any old error messages
+  dataCy = cytoscape({
+    elements: elements,
+    container: dataCyElt,
+    style: getStyle(),
+    layout: { name: 'grid', padding: 10 },
+    ready: function (){ window.dataCy = this; }
+  })
 }
 
 function getStyle () {
@@ -184,3 +161,52 @@ function getStyle () {
       }
     })
 }
+
+const demoData = {
+  nodes: [
+    { data: { id: 'a' } },
+    { data: { id: 'a1' } },
+    { data: { id: 'a2' } },
+    { data: { id: 'a3' } },
+
+    { data: { id: 'b' }, selected: true },
+    { data: { id: 'b1' } },
+    { data: { id: 'b2' } },
+    { data: { id: 'b3' } },
+
+    { data: { id: 'c' } },
+    { data: { id: 'c1' } },
+    { data: { id: 'c2' } },
+    { data: { id: 'c3' } },
+
+    // { data: { id: 'd' }, selected: true },
+    // { data: { id: 'd1' } },
+    // { data: { id: 'd2' } },
+    // { data: { id: 'd3' } },
+  ],
+  edges: [
+    { data: { source: 'a', target: 'a1', label: 'rel1' } },
+    { data: { source: 'a', target: 'a2', label: 'rel2' } },
+    { data: { source: 'a', target: 'a3', label: 'rel3' } },
+
+    { data: { source: 'b', target: 'b1', label: 'rel1' } },
+    { data: { source: 'b', target: 'b2', label: 'rel1' } },
+    { data: { source: 'b', target: 'b3', label: 'rel2' } },
+
+    { data: { source: 'c', target: 'c1', label: 'rel1' } },
+    { data: { source: 'c', target: 'c2', label: 'rel3' } },
+    { data: { source: 'c', target: 'c3', label: 'rel3' } },
+
+    // { data: { source: 'd', target: 'd1', label: 'rel1' } },
+    // { data: { source: 'd', target: 'd2', label: 'rel2' } },
+    // { data: { source: 'd', target: 'd3', label: 'rel3' } },
+  ]
+}
+
+const demoSchema = `PREFIX : <#>
+start=@<#foo>
+<#foo> {
+  :rel1 . ;
+  :rel2 . + ;
+  :rel3 . *
+}`
